@@ -8,6 +8,10 @@ Works on 10″ tablets (touch, portrait and landscape) up to 27″ desktop monit
 Feature docs: [`specs/001-category-notes-canvas/`](specs/001-category-notes-canvas/) ·
 Project rules: [`.specify/memory/constitution.md`](.specify/memory/constitution.md)
 
+## Side note
+
+Created with GitHub Spec Kit - had some fun with it. SDD is the way to go, not sure if Spec Kit way.
+
 ## Features
 
 - Add, edit, delete and reorder notes (drag and drop with mouse, touch or keyboard, or
