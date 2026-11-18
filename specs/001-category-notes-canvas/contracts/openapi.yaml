@@ -1,0 +1,245 @@
+openapi: 3.1.0
+info:
+  title: MyNote API
+  version: 1.0.0
+  description: >
+    REST API for categories and notes. Served by the backend container under /api/v1 and
+    reverse-proxied by the frontend container. All timestamps are ISO-8601 UTC.
+servers:
+  - url: /api/v1
+paths:
+  /health:
+    get:
+      summary: Liveness/readiness check (pings MongoDB)
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service and database reachable
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [ok] }
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /categories:
+    get:
+      summary: List categories in creation order
+      operationId: listCategories
+      responses:
+        "200":
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Category" }
+    post:
+      summary: Create a category
+      operationId: createCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "409":
+          description: A category with this name (case-insensitive) already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /categories/{categoryId}:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    delete:
+      summary: Delete a category and all of its notes
+      description: Confirmation is a client responsibility; the server deletes unconditionally.
+      operationId: deleteCategory
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /categories/{categoryId}/notes:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      summary: List notes of a category ordered by position
+      operationId: listNotes
+      responses:
+        "200":
+          description: Notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Note" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      summary: Add a note at the end of the category
+      operationId: createNote
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Note" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /categories/{categoryId}/notes/order:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    put:
+      summary: Reorder notes within the category
+      description: >
+        `note_ids` MUST contain exactly the IDs of all notes in this category, each once, in the
+        desired order. IDs of notes from other categories are rejected (no cross-category moves).
+      operationId: reorderNotes
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteOrder" }
+      responses:
+        "200":
+          description: Notes in their new order
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Note" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /notes/{noteId}:
+    parameters:
+      - $ref: "#/components/parameters/NoteId"
+    patch:
+      summary: Update note content (auto-save on blur)
+      operationId: updateNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NoteUpdate" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Note" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      summary: Delete a note
+      description: Confirmation is a client responsibility. Remaining positions are compacted.
+      operationId: deleteNote
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  parameters:
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ObjectId" }
+    NoteId:
+      name: noteId
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/ObjectId" }
+  schemas:
+    ObjectId:
+      type: string
+      pattern: "^[a-f0-9]{24}$"
+    Category:
+      type: object
+      required: [id, name, created_at, note_count]
+      properties:
+        id: { $ref: "#/components/schemas/ObjectId" }
+        name: { type: string, minLength: 1, maxLength: 50 }
+        created_at: { type: string, format: date-time }
+        note_count:
+          type: integer
+          minimum: 0
+          description: Used by the client for the extra warning on category delete (FR-017)
+    CategoryCreate:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Trimmed server-side; 1–50 chars after trimming
+    Note:
+      type: object
+      required: [id, category_id, content, position, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/ObjectId" }
+        category_id: { $ref: "#/components/schemas/ObjectId" }
+        content: { type: string, maxLength: 20000 }
+        position: { type: integer, minimum: 0 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    NoteCreate:
+      type: object
+      additionalProperties: false
+      properties:
+        content: { type: string, maxLength: 20000, default: "" }
+    NoteUpdate:
+      type: object
+      required: [content]
+      additionalProperties: false
+      properties:
+        content: { type: string, maxLength: 20000 }
+    NoteOrder:
+      type: object
+      required: [note_ids]
+      additionalProperties: false
+      properties:
+        note_ids:
+          type: array
+          uniqueItems: true
+          items: { $ref: "#/components/schemas/ObjectId" }
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+        code:
+          type: string
+          description: Machine-readable code, e.g. category_name_conflict, not_found
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    ValidationError:
+      description: Request failed validation
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
